@@ -8,8 +8,8 @@
 OPU_simulation=true
 backprop_simulation=true
 
-main_path=../scripts/OPU_training.py
-main_bp_path=../scripts/backprop_training.py
+main_path=../scripts/images/OPU_training.py
+main_bp_path=../scripts/images/backprop_training.py
 
 save_path=../data/
 dataset_path=~/datasets/
