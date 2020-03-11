@@ -17,8 +17,12 @@ dataset_path=~/datasets/
 batch_size=32
 OPU="Saturn"
 
-declare -a models=("resnet18" "resnet34" "resnet50" "resnet101" "resnet152")
-model_options="noavgpool"
+# To iterate on multiple models uncomment the line below
+#declare -a models=("resnet18" "resnet34" "resnet50" "resnet101" "resnet152")
+
+declare -a models=("densenet169")
+#we advide using norelu for VGG models, noavgpool for ResNets and full for DenseNets
+model_options="full"
 
 # ============= OPU parameters =============
 
@@ -34,7 +38,6 @@ alpha_space=5
 # ============= Backprop parameters =============
 
 n_epochs=5
-acc_toll=2
 
 for model in "${models[@]}"; do
   if [[ "$OPU_simulation" == true ]]
