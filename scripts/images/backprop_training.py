@@ -8,7 +8,6 @@ from datetime import datetime
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
-from torchvision.datasets import ImageFolder
 import torchvision.transforms as transforms
 
 import pandas as pd
@@ -17,7 +16,7 @@ from tqdm import tqdm
 
 from utils.images.model_utils import pick_model, Reshape, get_model_size
 from utils.images.backprop import train_model, evaluate_model
-
+from utils.images.dataset import Animals10
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Transfer learning - standard", formatter_class=RawTextHelpFormatter)
@@ -77,10 +76,8 @@ def get_loaders(dataset_path, batch_size=32, num_workers=12, mean=None, std=None
 
     dataset_path = os.path.join(dataset_path, "animals10/raw-img/")
 
-    #train_dataset = Animals10(dataset_path, test_ratio=20, mode="train", transform=data_transform)
-    #test_dataset = Animals10(dataset_path, test_ratio=20, mode="test", transform=data_transform)
-    train_dataset = ImageFolder("/data/home/luca/datasets/scenery/seg_train/seg_train/", transform=data_transform)
-    test_dataset = ImageFolder("/data/home/luca/datasets/scenery/seg_test/seg_test/", transform=data_transform)
+    train_dataset = Animals10(dataset_path, test_ratio=20, mode="train", transform=data_transform)
+    test_dataset = Animals10(dataset_path, test_ratio=20, mode="test", transform=data_transform)
 
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers)
     test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers)
@@ -207,7 +204,6 @@ def main(args):
         if args.save_path is not None:
             save_data(args, final_data)
 
-    del model
     torch.cuda.empty_cache()
     return
 

@@ -181,9 +181,11 @@ def main(args):
     # Get the encoded convolutional features.
 
     model.to(torch.device(args.device))
-
-    n_components = output_size // args.n_components
-    print("Random projection from {} to {}".format(output_size, n_components))
+    if args.n_components != 0:
+        n_components = output_size // args.n_components
+        print("Random projection from {} to {}".format(output_size, n_components))
+    else:
+        n_components = 0
 
     enc_train_features, train_labels, train_conv_time, train_encode_time = fast_conv_features(train_loader, model,
                                                                                               output_size,
@@ -210,8 +212,8 @@ def main(args):
 
     del model, enc_train_features, enc_test_features
 
-    train_decode_time, dec_train_random_features = decoding(train_random_features, decode_type=None)
-    test_decode_time, dec_test_random_features = decoding(test_random_features, decode_type=None)
+    train_decode_time, dec_train_random_features = decoding(train_random_features, decode_type=args.decode_type)
+    test_decode_time, dec_test_random_features = decoding(test_random_features, decode_type=args.decode_type)
 
     print("Train projection time = {0:3.2f} s\tTrain decode time = {1:3.2f} s".format(train_proj_time, train_decode_time))
     print("Test projection time = {0:3.2f} s\tTest decode time = {1:3.2f} s".format(test_proj_time, test_decode_time))
