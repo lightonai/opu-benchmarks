@@ -83,6 +83,13 @@ We recommend using the bash script `cnn3d_i3d.sh` in the `bash` folder.
  - Edit the parameters at the top to match the path to the dataset, script and save folder along with other things you might want to change;
  - Make it executable with `chmod +x cnn3d_i3d.sh` and run with `./cnn3d_i3d.sh`.
  
+## Finetuning with RAY
+
+```
+python3 i3d_backprop_tune.py rgb hmdb51 -pretrained_path_rgb /home/ubuntu/opu-benchmarks/pretrained_weights/i3d_rgb_imagenet_kin.pt -dataset_
+path /home/ubuntu/datasets_video/HMDB51/ -save_path /home/ubuntu/opu-benchmarks/data/
+```
+
 ## Hardware specifics
 
 All the simulations have been run on a Tesla P100 GPU with 16GB memory and a Intel(R) Xeon(R) Gold 6128 CPU @ 3.40GHz with 12 cores. 
