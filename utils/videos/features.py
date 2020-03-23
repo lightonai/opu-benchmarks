@@ -67,45 +67,45 @@ def fast_conv_features(loader, model, out_shape, encode_type='positive', dtype='
 
     if dtype == 'float16':
         conv_features = conv_features.half()
+    with torch.no_grad():
+        for i, (images, targets) in enumerate(loader):
 
-    for i, (images, targets) in enumerate(loader):
+            images = images.to(torch.device(device))
+            if dtype == 'float16':
+                images = images.half()
 
-        images = images.to(torch.device(device))
-        if dtype == 'float16':
-            images = images.half()
+            outputs = model(images)
 
-        outputs = model(images)
+            stop_idx = (i + 1) * batch_size
+            if stop_idx > conv_features.shape[0]:
+                stop_idx = conv_features.shape[0]
 
-        stop_idx = (i + 1) * batch_size
-        if stop_idx > conv_features.shape[0]:
-            stop_idx = conv_features.shape[0]
+            conv_features[i * batch_size: (i + 1) * batch_size, :] = outputs.data.view(images.size(0), -1)
+            labels[i * batch_size: (i + 1) * batch_size] = targets.numpy()
 
-        conv_features[i * batch_size: (i + 1) * batch_size, :] = outputs.data.view(images.size(0), -1)
-        labels[i * batch_size: (i + 1) * batch_size] = targets.numpy()
+            #del images, outputs
 
-        #del images, outputs
-
-    torch.cuda.synchronize()
-    conv_time = time() - t0
-
-    if encode_type == 'positive':
         torch.cuda.synchronize()
-        start = time()
-        conv_features = (conv_features > 0)
-        torch.cuda.synchronize()
-        encode_time = time() - start
+        conv_time = time() - t0
 
-    elif encode_type == 'float32':
-        torch.cuda.synchronize()
-        start = time()
-        conv_features = (torch.abs(conv_features) > 2)
-        torch.cuda.synchronize()
-        encode_time = time() - start
+        if encode_type == 'positive':
+            torch.cuda.synchronize()
+            start = time()
+            conv_features = (conv_features > 0)
+            torch.cuda.synchronize()
+            encode_time = time() - start
 
-    else:
-        encode_time = 0
+        elif encode_type == 'float32':
+            torch.cuda.synchronize()
+            start = time()
+            conv_features = (torch.abs(conv_features) > 2)
+            torch.cuda.synchronize()
+            encode_time = time() - start
 
-    conv_features = conv_features.cpu().numpy()
+        else:
+            encode_time = 0
+
+        conv_features = conv_features.cpu().numpy()
 
     return conv_features, labels, conv_time, encode_time
 
