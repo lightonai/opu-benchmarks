@@ -59,47 +59,48 @@ def fast_conv_features(loader, model, out_shape, encode_type='positive', dtype='
     if dtype == 'float16':
         conv_features = conv_features.half()
 
-    for i, (images, targets) in enumerate(loader):
+    with torch.no_grad():
+        for i, (images, targets) in enumerate(loader):
 
-        images = images.to(torch.device(device))
-        if dtype == 'float16':
-            images = images.half()
+            images = images.to(torch.device(device))
+            if dtype == 'float16':
+                images = images.half()
 
-        if model.name[0:12] == "efficientnet":
-            outputs = model.extract_features(images)
+            if model.name[0:12] == "efficientnet":
+                outputs = model.extract_features(images)
+            else:
+                outputs = model(images)
+
+            stop_idx = (i + 1) * batch_size
+            if stop_idx > conv_features.shape[0]:
+                stop_idx = conv_features.shape[0]
+
+            conv_features[i * batch_size: (i + 1) * batch_size, :] = outputs.data.view(images.size(0), -1)
+            labels[i * batch_size: (i + 1) * batch_size] = targets.numpy()
+
+            del images, outputs
+
+        torch.cuda.synchronize()
+        conv_time = time() - t0
+
+        if encode_type == 'positive':
+            torch.cuda.synchronize()
+            start = time()
+            conv_features = (conv_features > 0)
+            torch.cuda.synchronize()
+            encode_time = time() - start
+
+        elif encode_type == 'float32':
+            torch.cuda.synchronize()
+            start = time()
+            conv_features = (torch.abs(conv_features) > 2)
+            torch.cuda.synchronize()
+            encode_time = time() - start
+
         else:
-            outputs = model(images)
+            encode_time = 0
 
-        stop_idx = (i + 1) * batch_size
-        if stop_idx > conv_features.shape[0]:
-            stop_idx = conv_features.shape[0]
-
-        conv_features[i * batch_size: (i + 1) * batch_size, :] = outputs.data.view(images.size(0), -1)
-        labels[i * batch_size: (i + 1) * batch_size] = targets.numpy()
-
-        del images, outputs
-
-    torch.cuda.synchronize()
-    conv_time = time() - t0
-
-    if encode_type == 'positive':
-        torch.cuda.synchronize()
-        start = time()
-        conv_features = (conv_features > 0)
-        torch.cuda.synchronize()
-        encode_time = time() - start
-
-    elif encode_type == 'float32':
-        torch.cuda.synchronize()
-        start = time()
-        conv_features = (torch.abs(conv_features) > 2)
-        torch.cuda.synchronize()
-        encode_time = time() - start
-
-    else:
-        encode_time = 0
-
-    conv_features = conv_features.cpu().numpy()
+        conv_features = conv_features.cpu().numpy()
 
     return conv_features, labels, conv_time, encode_time
 
