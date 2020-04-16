@@ -2,20 +2,35 @@ from time import time
 
 import torch
 import numpy as np
-from sklearn.linear_model import RidgeClassifier
 
 try:
     from lightonml.encoding.base import Float32Encoder, MixingBitPlanDecoder
-except ImportError:
-    print("lightonml not imported. Check that it was correctly installed.")
-
-try:
-    from lightonopu.opu import OPU
-except ImportError:
-    print("lightonopu not imported. Check that it was correctly installed.")
+    from lightonml.projections.sklearn import OPUMap
+except ModuleNotFoundError:
+    print("Missing lightonml module. Check that it is correctly installed.")
 
 
-def fast_conv_features(loader, model, out_shape, encode_type='positive', dtype='float32', device='cpu'):
+def encode_GPU(X, encode_type="positive"):
+    if encode_type == 'positive':
+        torch.cuda.synchronize()
+        start = time()
+        X = (X > 0)
+        torch.cuda.synchronize()
+        encode_time = time() - start
+
+    elif encode_type == 'float32':
+        torch.cuda.synchronize()
+        start = time()
+        X = (torch.abs(X) > 2)
+        torch.cuda.synchronize()
+        encode_time = time() - start
+    else:
+        encode_time = 0.
+
+    return X, encode_time
+
+
+def fast_conv_features(loader, model, out_shape, encode_type='positive', device='cpu'):
     """
     Computes the convolutional features of the images in the loader, and optionally encodes them on GPU
     based on their sign.
@@ -34,9 +49,6 @@ def fast_conv_features(loader, model, out_shape, encode_type='positive', dtype='
     encode: str,
         encodes the convolutional features on GPU. Choices: positive -> sign encoding / float32 -> 1 bit float32.
         Eventual other options result in no encoding.
-    dtype: string,
-        datatype for the computation of the convolutional features. Choose between 'float32' (default)
-        and 'float16'. Make sure that the model in input matches the dtype.
     device: string,
         device to use for the computation. Choose between 'cpu' and 'gpu:x', where
         x is the GPU number. Defaults to 'cpu'.
@@ -59,136 +71,137 @@ def fast_conv_features(loader, model, out_shape, encode_type='positive', dtype='
 
     model.eval()
     batch_size = loader.batch_size
-    torch.cuda.synchronize()
-    t0 = time()
 
-    conv_features = torch.FloatTensor(n_images, out_shape).to(torch.device(device))
-    labels = np.empty(n_images, dtype='uint8')
+    encode_time = 0
 
-    if dtype == 'float16':
-        conv_features = conv_features.half()
     with torch.no_grad():
+
+        if encode_type is not None:
+            conv_features = torch.ByteTensor(n_images, out_shape)
+        else:
+            conv_features = torch.FloatTensor(n_images, out_shape)
+
+        labels = np.empty(n_images, dtype='uint8')
+
+        torch.cuda.synchronize()
+        t0 = time()
+
         for i, (images, targets) in enumerate(loader):
 
             images = images.to(torch.device(device))
-            if dtype == 'float16':
-                images = images.half()
 
             outputs = model(images)
 
-            stop_idx = (i + 1) * batch_size
-            if stop_idx > conv_features.shape[0]:
-                stop_idx = conv_features.shape[0]
+            if encode_type is not None:
+                outputs, batch_encode_time = encode_GPU(outputs, encode_type=encode_type)
+                encode_time += batch_encode_time
 
-            conv_features[i * batch_size: (i + 1) * batch_size, :] = outputs.data.view(images.size(0), -1)
+            conv_features[i * batch_size: (i + 1) * batch_size, :] = outputs.data.view(images.size(0), -1).to(
+                torch.device("cpu"))
             labels[i * batch_size: (i + 1) * batch_size] = targets.numpy()
 
-            #del images, outputs
-
         torch.cuda.synchronize()
-        conv_time = time() - t0
-
-        if encode_type == 'positive':
-            torch.cuda.synchronize()
-            start = time()
-            conv_features = (conv_features > 0)
-            torch.cuda.synchronize()
-            encode_time = time() - start
-
-        elif encode_type == 'float32':
-            torch.cuda.synchronize()
-            start = time()
-            conv_features = (torch.abs(conv_features) > 2)
-            torch.cuda.synchronize()
-            encode_time = time() - start
-
-        else:
-            encode_time = 0
-
-        conv_features = conv_features.cpu().numpy()
+        conv_time = time() - t0 - encode_time
 
     return conv_features, labels, conv_time, encode_time
 
 
-def encoding(train_conv_features, test_conv_features, exp_bits=1, sign_bit=False, mantissa_bits=0,
-             encode_type='float32', threshold=0):
+def generate_RM(n_components, n_features, n_ram=10, normalize=True):
     """
-    Encodes the convolutional features. Three schemes are available:
-    - float32 = Standard float32 encoding with a given number of bits
-    - abs_th = 1 bit float32-like encoding: if abs(x)>th -> 1; else 0.
-        abs_th with threshold 1 is 1bit float32, but much faster.
-    - plain_th = Threshold encoding: if x>th -> 1; else 0
-        plain_th with threshold 0 is a sign encoder.
+    Generates the splits for the random matrix, ready to be moved to GPU.
 
     Parameters
     ----------
 
-    train_conv_features: numpy 2d array,
-        convolutional features of the training set.
-    test_conv_features: numpy 2d array,
-        convolutional features of the test set.
-    exp_bits: int,
-        number of bits for the exponent in the float32 encoding. Defaults to 1.
-    sign_bit: boolean,
-        if True, a bit will be used for the sign of the encoded numbers in the float32 encoding. Defaults to False.
-    mantissa_bits: int,
-        number of bits for the mantissa in the float32 encoding. Defaults to 0.
-    encode type: string,
-        type of encoding to perform. Choices = 'float32', 'abs_th' ,'plain_th'. Defaults to 'float32'.
-    threshold: float,
-        threshold for the abs_th/plain_th encodings. Defaults to 0.
+    n_components: int,
+        number of random projections.
+    n_features: int,
+        number of convolutional features of the input matrix.
+    n_ram: int,
+        number of splits for the random matrix.
+    normalize: boolean,
+        if True, normalizes the matrix by dividing each entry by np.sqrt(n_features). defaults to True
 
     Returns
     -------
-    train_encode_time: float,
-        train encoding time.
-    test_encode_time: float,
-        test encoding time.
-    encoded_train_conv_features: numpy 2d array,
-        encoded convolutional training features.
-    encoded_test_conv_features: numpy 2d array,
-        encoded convolutional test features.
+
+    R: list of torch tensor,
+        random projection matrix.
+    generation_time: float,
+        time to generate the matrix.
 
     """
 
-    if encode_type == 'float32':
-        encoder = Float32Encoder(sign_bit=sign_bit, exp_bits=exp_bits, mantissa_bits=mantissa_bits)
-        since = time()
-        encoded_train_conv_features = encoder.transform(train_conv_features)
-        train_encode_time = time() - since
+    matrix_shape = (n_features, n_components // n_ram)
+    R = []
+    since = time()
 
-        since = time()
-        encoded_test_conv_features = encoder.transform(test_conv_features)
-        test_encode_time = time() - since
+    for i in range(n_ram):
+        print('Generating random matrix # ', i + 1)
+        # allocate the right amount of memory
+        R_tmp_real = torch.randn(matrix_shape, dtype=torch.float, requires_grad=False)
+        R_tmp_im = torch.randn(matrix_shape, dtype=torch.float, requires_grad=False)
+        if normalize is True:
+            R_tmp_real /= np.sqrt(n_components)
+            R_tmp_im /= np.sqrt(n_components)
 
-    elif encode_type == 'abs_th':
-        since = time()
-        encoded_train_conv_features = (np.abs(train_conv_features) >= threshold).view(np.uint8)
-        train_encode_time = time() - since
+        R.append((R_tmp_real, R_tmp_im))
 
-        since = time()
-        encoded_test_conv_features = (np.abs(test_conv_features) >= threshold).view(np.uint8)
-        test_encode_time = time() - since
+    generation_time = time() - since
 
-    elif encode_type == 'plain_th':
-        since = time()
-        encoded_train_conv_features = (train_conv_features >= threshold).view(np.uint8)
-        train_encode_time = time() - since
-
-        since = time()
-        encoded_test_conv_features = (test_conv_features >= threshold).view(np.uint8)
-        test_encode_time = time() - since
-
-    else:
-        print('ERROR: encode type not understood.')
-        return
-    print("{0} encoding time: train={1:2.4f} s\ttest = {2:2.4f} s\n"
-          .format(encode_type, train_encode_time, test_encode_time))
-
-    return train_encode_time, test_encode_time, encoded_train_conv_features, encoded_test_conv_features
+    return R, generation_time
 
 
-def get_random_features(X, n_components):
+def get_rand_features_GPU(R, X, device="cuda:0"):
+    """
+    Computes the random projection on GPU.
+
+    Parameters
+    ----------
+
+    R: list of torch tensor,
+        random projection matrix.
+    X: numpy array,
+        matrix to project. Expects a list of tuples in the form [Real part, Imaginary part] of the different blocks of
+        the matrix.
+    device: str,
+        device for the random projection.
+
+    Returns
+    -------
+    random_features: torch tensor,
+        array of random features.
+    proj_time: float,
+        projection time.
+
+    """
+    random_features = []
+
+
+    with torch.no_grad():
+        X = X.to(device)
+
+        torch.cuda.synchronize()
+        t0 = time()
+
+        for real_part, im_part in R:
+            matrix = real_part.to(device)
+            real_dot = torch.mm(X, matrix)
+
+            matrix = im_part.to(device)
+            im_dot = torch.mm(X, matrix)
+
+            random_features.append(real_dot**2 + im_dot**2)
+
+        random_features = torch.cat(random_features, axis=1).to("cpu")
+
+        torch.cuda.synchronize()
+        proj_time = time() - t0
+
+    return random_features, proj_time
+
+
+def get_random_features(X, n_components, matrix=None):
     """
     Performs the random projection of the encoded random features X using the OPU.
 
@@ -198,7 +211,8 @@ def get_random_features(X, n_components):
         encoded convolutional training features. Make sure that the dtype is int8 if n_components!=0.
     n_components: int,
         number of random projections.
-
+    matrix: None or numpy array,
+        Matrix to use for the random projection on GPU. If None, the OPU will be used.
     Returns
     -------
 
@@ -218,12 +232,18 @@ def get_random_features(X, n_components):
 
         return train_time, X
 
-    with OPU(n_components=n_components) as opu:
+    if matrix is not None:
+        random_features, train_time = get_rand_features_GPU(matrix, X)
+
+    else:
+        opu = OPUMap(n_components=n_components)
+
         since = time()
-        random_features = opu.transform1d(X)
+        random_features = opu.transform(X)
         train_time = time() - since
 
     return train_time, random_features
+
 
 
 def decoding(random_features, exp_bits=1, sign_bit=False, mantissa_bits=0, decode_type='mixing'):
@@ -270,47 +290,6 @@ def decoding(random_features, exp_bits=1, sign_bit=False, mantissa_bits=0, decod
 
 
     return train_decode_time, dec_random_features
-
-
-def train_classifier(train_random_features, train_labels, test_random_features, test_labels, alpha):
-    """
-    Trains a Ridge classifier over a set of values for the regularization coefficient alpha.
-
-    Parameters
-    ----------
-    train_random_features: numpy array,
-        features of the training images. Format is (# of samples * # of features).
-    train_labels: numpy array,
-        labels of the training images. Format is (# of samples,).
-    test_random_features: numpy array,
-        features of the test images. Format is (# of samples * # of features).
-    test_labels: numpy array,
-        labels of the test images. Format is (# of samples,).
-    alpha: float,
-        regularization coefficient.
-
-    Returns
-    -------
-    fit_time: float,
-        training time for the Ridge classifier
-    train_accuracy *100: float,
-        accuracy on the training set [%].
-    test_accuracy * 100: float,
-        accuracy on the test set [%].
-    """
-
-    clf = RidgeClassifier(alpha=alpha)
-    since = time()
-    clf.fit(np.square(np.abs(train_random_features)), train_labels)
-    fit_time = time() - since
-
-    since = time()
-    train_accuracy = clf.score(np.square(np.abs(train_random_features)), train_labels)
-    test_accuracy = clf.score(np.square(np.abs(test_random_features)), test_labels)
-    score_time = time() - since
-
-    return fit_time, train_accuracy * 100, test_accuracy * 100
-
 
 def dummy_predict(clf, dec_test_random_features):
     """

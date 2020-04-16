@@ -16,7 +16,7 @@ from torch.utils.data import DataLoader
 from sklearn.linear_model import RidgeClassifier
 
 import utils.videos.models.i3d as i3d
-from utils.videos.features import fast_conv_features, decoding, get_random_features, dummy_predict_GPU
+from utils.videos.features import fast_conv_features, decoding, get_random_features, dummy_predict_GPU, generate_RM
 from utils.videos.datasets.HMDB51 import HMDB51Frames3D, HMDB51Flow3D
 from utils.videos.datasets.UCF101 import UCF101Frames3D, UCF101Flow3D
 from utils.videos.statistics import get_video_acc_3d, get_model_size, get_output_size
@@ -28,7 +28,6 @@ def parse_args():
 
     parser.add_argument("mode", help="Mode for the 3D CNN. Choose between rgb and flow", type=str)
     parser.add_argument("dataset_name", help='Base model for TL.', type=str, choices=["hmdb51", "ucf101"])
-    parser.add_argument("OPU", help='OPU model. For file naming.', type=str, choices=['Zeus', 'Vulcain', 'Saturn'])
 
     parser.add_argument("-frames_train", help="Frames per clip for the train set. Default=3", type=int, default=3)
     parser.add_argument("-frames_test", help="Frames per clip for the test set. Default=3", type=int, default=3)
@@ -44,13 +43,12 @@ def parse_args():
     parser.add_argument("-crop_size", help='Size of the center crop area.', type=int, default=224)
     parser.add_argument("-fold", help='Dataset split. Default=1.', type=int, default=1, choices=[1, 2, 3])
 
+    parser.add_argument("-RP_device", help='Device for the Random projection.', type=str, choices=["gpu", "opu"],
+                        default="opu")
     parser.add_argument("-device",
                         help="Device for the GPU computation, specified as 'cuda:x', where x is the GPU number."
                              "Choose 'cpu' to use the CPU for all computations. Default='cuda:0'", type=str,
                         default='cuda:0')
-
-    parser.add_argument('-model_dtype', help="dtype for the network weights. Defaults to 'float32'.",
-                        choices=['float32', 'float16'], type=str, default="float32")
 
     parser.add_argument("-encode_type",
                         help="Type of encoding. 'float32'=standard float32 | 'positive'= sign encoding",
@@ -127,29 +125,29 @@ def get_loader(dataset_name, dataset_path, mode, n_frames, step_between_clips, b
     return loader
 
 
-def save_results(args, train_data, test_data):
+def save_results(args, train_data, test_data, save_path):
     """
     Helper function to save the results of the training
     """
 
-    pathlib.Path(args.save_path).mkdir(parents=True, exist_ok=True)
+    pathlib.Path(save_path).mkdir(parents=True, exist_ok=True)
 
-    train_columns = ['RP', 'batch size', "frames_train", "step_train", 'model dtype', 'conv f', 'conv features shape',
-                     "encoding", 'rand f', 'decoding', 'alpha', 'fit time', 'total time', 'model size [MB]',
+    train_columns = ['RP', 'batch size', "frames_train", "step_train", 'conv f', 'conv features shape',
+                     "encoding", "generation time", 'rand f', 'decoding', 'alpha', 'fit time', 'total time', 'model size [MB]',
                      'ridge size [MB]', 'date']
 
     savedata = pd.DataFrame(train_data, columns=train_columns)
-    savedata.to_csv(os.path.join(args.save_path, "train_{}.csv".format(args.mode)), sep='\t', index=False)
+    savedata.to_csv(os.path.join(save_path, "train_{}.csv".format(args.mode)), sep='\t', index=False)
 
-    test_columns = ['RP', 'batch size', "frames_test", "step_test", 'model dtype', 'conv f', "encoding", 'rand f',
+    test_columns = ['RP', 'batch size', "frames_test", "step_test", 'conv f', "encoding", 'rand f',
                     'decoding', 'predict time', 'inference time', 'acc_test_frames', "acc_test_video_m",
                     "acc_test_video_s", 'model size [MB]', 'ridge size [MB]']
 
     savedata = pd.DataFrame(test_data[args.frames_test], columns=test_columns)
-    savedata.to_csv(os.path.join(args.save_path, "inference_{}_{}.csv".format(args.mode, str(args.frames_test).zfill(3))),
+    savedata.to_csv(os.path.join(save_path, "inference_{}_{}.csv".format(args.mode, str(args.frames_test).zfill(3))),
                     sep='\t', index=False)
 
-    with open(os.path.join(args.save_path, "parameters_{}.json".format(args.mode)), "w") as file:
+    with open(os.path.join(save_path, "parameters_{}.json".format(args.mode)), "w") as file:
         json.dump(args.__dict__, file)
 
     return
@@ -157,7 +155,8 @@ def save_results(args, train_data, test_data):
 
 def main(args):
     if args.save_path is not None:
-        args.save_path = os.path.join(args.save_path, "{}_{}_{}".format(args.dataset_name, args.frames_train, args.step_train))
+        save_path = os.path.join(args.save_path, "{}_{}".format(args.RP_device, args.n_components),
+                                 "{}_{}_{}".format(args.dataset_name, args.frames_train, args.step_train))
 
     torch.manual_seed(0)
 
@@ -195,28 +194,31 @@ def main(args):
 
     model.to(args.device)
 
-    if args.model_dtype == "float16":
-        model = model.half()
-
     enc_train_features, train_labels, train_conv_time, train_enc_time = fast_conv_features(train_loader, model,
                                                                                            output_size,
                                                                                            device=args.device,
-                                                                                           encode_type=args.encode_type,
-                                                                                           dtype=args.model_dtype)
+                                                                                           encode_type=args.encode_type)
 
     print("Train conv features time = {0:3.2f} s\tencoding = {1:1.5f} s - shape {2}"
           .format(train_conv_time, train_enc_time, enc_train_features.shape))
 
     enc_test_features, test_labels, test_conv_time, test_enc_time = fast_conv_features(test_loader, model, output_size,
                                                                                        device=args.device,
-                                                                                       encode_type=args.encode_type,
-                                                                                       dtype=args.model_dtype)
+                                                                                       encode_type=args.encode_type)
     print("Test conv features time = {0:3.2f} s\tencoding = {1:1.5f} s - shape {2}"
           .format(test_conv_time, test_enc_time, enc_test_features.shape))
 
+    if args.RP_device == "gpu":
+        R, generation_time = generate_RM(args.n_components, output_size)
+        print("Generation time = {0:3.2f} s".format(generation_time))
+
+    else:
+        R = None
+        generation_time = 0.
+
     # Encode, get the random features and decode
-    train_proj_time, train_random_features = get_random_features(enc_train_features, args.n_components)
-    test_proj_time, test_random_features = get_random_features(enc_test_features, args.n_components)
+    train_proj_time, train_random_features = get_random_features(enc_train_features, args.n_components, matrix=R)
+    test_proj_time, test_random_features = get_random_features(enc_test_features, args.n_components, matrix=R)
     print('Train Projection time = {0:3.2f} s\nTest Projection time = {1:3.2f} s'.format(train_proj_time, test_proj_time))
 
     del enc_train_features, enc_test_features
@@ -245,8 +247,8 @@ def main(args):
 
         ridge_size = np.prod(clf.coef_.shape) * 32 / (8 * 2 ** 10 * 2 ** 10)
 
-        train_data = [args.n_components, args.batch_size, args.frames_train, args.step_train, args.model_dtype,
-                      train_conv_time, output_size, train_enc_time, train_proj_time, train_decode_time, alpha, fit_time,
+        train_data = [args.n_components, args.batch_size, args.frames_train, args.step_train,
+                      train_conv_time, output_size, train_enc_time, generation_time, train_proj_time, train_decode_time, alpha, fit_time,
                       total_train_time, model_size, ridge_size, current_date]
 
         final_train_data.append(train_data)
@@ -257,14 +259,14 @@ def main(args):
 
 
         test_acc_clip, test_acc_maj, test_acc_softmax = get_video_acc_3d(dec_test_random_features, test_labels,
-                                                                         test_loader, clf=clf, save_path=args.save_path)
+                                                                         test_loader, clf=clf, save_path=save_path)
 
         test_decode_time, predict_time = dummy_predict_GPU(clf, dec_test_random_features, device=args.device)
 
         total_inference_time = test_conv_time + test_enc_time + test_proj_time + test_decode_time + predict_time
 
         # In order, test_times contains the convolutional, encoding and projection time.
-        inference_data = [args.n_components, args.batch_size, args.frames_test, args.step_test, args.model_dtype,
+        inference_data = [args.n_components, args.batch_size, args.frames_test, args.step_test,
                           test_conv_time, test_enc_time, test_proj_time, test_decode_time, predict_time,
                           total_inference_time, test_acc_clip, test_acc_maj, test_acc_softmax, model_size,
                           ridge_size]
@@ -277,7 +279,7 @@ def main(args):
         if args.save_path is not None:
             save_results(args, final_train_data, test_data)
 
-    print("Results saved in {}".format(args.save_path))
+    print("Results saved in {}".format(save_path))
 
     return
 

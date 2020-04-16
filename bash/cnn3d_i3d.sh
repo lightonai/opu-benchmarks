@@ -12,6 +12,7 @@ batch_size=2
 num_workers=12
 crop_size=224 #height and width of the frames
 
+RP_device="opu"
 device="cuda:0"
 
 opu_script=../scripts/videos/i3d_opu.py
@@ -52,10 +53,10 @@ for ((frames = $frames_min; frames <= $frames_max; frames += $frames_step)); do
 
   if [[ "$OPU_simulation" == true ]]; then
 
-    python3 $opu_script "rgb" $dataset $OPU \
+    python3 $opu_script "rgb" $dataset  \
       -frames_train=$frames -frames_test=$frames -step_train=$step_train -step_test=$step_test \
       -batch_size=$batch_size -num_workers=$num_workers -crop_size=$crop_size -fold=$fold -device=$device \
-      -model_dtype=$dtype -encode_type=$encode_type -decode_type=$decode_type -n_components=$n_components \
+      -RP_device=$RP_device -model_dtype=$dtype -encode_type=$encode_type -decode_type=$decode_type -n_components=$n_components \
       -alpha_exp_min=$alpha_exp_min -alpha_exp_max=$alpha_exp_max -alpha_space=$alpha_space \
       -pretrained_path_rgb=$rgb_path -dataset_path=$dataset_path -save_path=$save_path
     echo -e '\n'
@@ -63,7 +64,7 @@ for ((frames = $frames_min; frames <= $frames_max; frames += $frames_step)); do
     python3 $opu_script "flow" $dataset $OPU \
       -frames_train=$frames -frames_test=$frames -step_train=$step_train -step_test=$step_test \
       -batch_size=$batch_size -num_workers=$num_workers -crop_size=$crop_size -fold=$fold -device=$device \
-      -model_dtype=$dtype -encode_type=$encode_type -decode_type=$decode_type -n_components=$n_components \
+      -RP_device=$RP_device -model_dtype=$dtype -encode_type=$encode_type -decode_type=$decode_type -n_components=$n_components \
       -alpha_exp_min=$alpha_exp_min -alpha_exp_max=$alpha_exp_max -alpha_space=$alpha_space \
       -pretrained_path_flow=$flow_path -dataset_path=$dataset_path -save_path=$save_path
     echo -e '\n'
