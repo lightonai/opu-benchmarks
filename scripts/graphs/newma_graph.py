@@ -18,7 +18,8 @@ def parse_args():
     # Graph arguments
     parser.add_argument("-n", '--n_nodes', help="Number of nodes of the graph.", type=int, default=1000)
     parser.add_argument("-p", '--p_edges', help="Probability of drawing an edge between two nodes.", type=float, default=0.03)
-    parser.add_argument("-cs", '--clique_size', help="Size of the clique.", type=int, default=20)
+    parser.add_argument("-csz", '--clique_size', help="Size of the clique.", type=int, default=20)
+    parser.add_argument("-cst", '--clique_step', help="Steps to create a clique.", type=int, default=20)
     parser.add_argument("-nr", '--noise_ratio', help="percentage of the total number of edges to add/remove as noise.",
                         type=int, default=10)
     parser.add_argument("-t", '--t_end', help="Duration of the simulation.", type=int, default=100)
@@ -44,8 +45,8 @@ def main(args):
         pathlib.Path(folder_name).mkdir(parents=True, exist_ok=True)
 
 
-    graph = Graph(n_nodes=args.n_nodes, p_edges=args.p_edges, clique_size=args.clique_size, noise_ratio=args.noise_ratio,
-                  save_path=folder_name)
+    graph = Graph(n_nodes=args.n_nodes, p_edges=args.p_edges, clique_size=args.clique_size, clique_step=args.clique_step,
+                  noise_ratio=args.noise_ratio, save_path=folder_name)
     graph.__info__()
 
     newma = NEWMA(args.n_nodes, args.n_components, time_window=args.time_window, l_ratio=args.l_ratio, eta=args.eta,
@@ -55,8 +56,8 @@ def main(args):
         new_edges = graph.evolve()
         #print('t = {0:4d}\t# edges = {1:6d}'.format(t, graph.G.number_of_edges()))
 
-        if t == args.t_clique:
-            graph.create_clique()
+        if args.t_clique <= t <= args.t_clique + args.clique_step:
+            graph.create_clique(progression=t - args.t_clique + 1)
 
         Adj_matrix = nx.to_numpy_array(graph.G)
 

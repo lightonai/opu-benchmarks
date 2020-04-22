@@ -12,10 +12,11 @@ import pandas as pd
 
 class Graph:
 
-    def __init__(self, n_nodes, clique_size, p_edges=0.003, noise_ratio=10, save_path=None):
+    def __init__(self, n_nodes, clique_size, clique_step=1, p_edges=0.003, noise_ratio=10, save_path=None):
         self.n_nodes = n_nodes
         self.p_edges = p_edges
         self.clique_size = clique_size
+        self.clique_step = clique_step
         self.noise_ratio = noise_ratio
         self.save_path = save_path
 
@@ -74,14 +75,16 @@ class Graph:
 
         return no_edges[0:n_add]
 
-    def create_clique(self):
-        self.G.add_edges_from(self.edges_clique)
+    def create_clique(self, progression=0):
+
+        edges_to_add = len(self.edges_clique)//self.clique_step * progression
+        self.G.add_edges_from(self.edges_clique[:edges_to_add])
+
         return
 
     def update_plot(self, new_edges, eigenvec, newma, t_end):
         """
         Code to generate the animation. Still a WIP, can be written better.
-        NOTE: create a folder named "animation" before running this.
         """
 
         data = pd.DataFrame(newma.log, columns=newma.data_columns)
@@ -130,8 +133,8 @@ class Graph:
 
 
     def __info__(self):
-        print("n_nodes = {}, p_edges = {}, clique_size = {}, noise_ratio = {}"
-              .format(self.n_nodes, self.p_edges, self.clique_size, self.noise_ratio))
+        print("n_nodes = {}\tp_edges = {}\tclique_size = {}\tclique_step = {}\tnoise_ratio = {}"
+              .format(self.n_nodes, self.p_edges, self.clique_size, self.clique_step, self.noise_ratio))
         return
 
 class NEWMA:
