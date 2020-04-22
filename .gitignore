@@ -5,4 +5,6 @@ notebooks/.ipynb_checkpoints/videos_finetuning-checkpoint.ipynb
 .idea/
 data/
 pretrained_weights/
+images/
+notebooks/.ipynb_checkpoints/
 
