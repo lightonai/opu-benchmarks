@@ -1,4 +1,5 @@
 import os
+import pathlib
 
 from random import shuffle
 from itertools import combinations
@@ -21,9 +22,10 @@ class Graph:
         self.G = nx.gnp_random_graph(n=self.n_nodes, p=self.p_edges)
 
         self.n_noise_edges = np.ceil(self.noise_ratio / 100 * len(self.G.edges))
-        self.nodes_clique, self.edges_clique, self.pos_dict = self.initialize_clique()
+        self.nodes_clique, self.edges_clique, self.pos_dict, self.nodes_color = self.initialize_clique()
 
         if self.save_path is not None:
+            pathlib.Path(os.path.join(self.save_path, "animation")).mkdir(parents=True, exist_ok=True)
             self.fig = plt.figure(figsize=(9.5, 7.5))
 
 
@@ -47,7 +49,7 @@ class Graph:
         for (u, v) in combinations(nodes_clique, r=2):
             edges_clique.append((u, v))
 
-        return nodes_clique, edges_clique, pos_dict
+        return nodes_clique, edges_clique, pos_dict, nodes_color
 
     def evolve(self):
         """
@@ -76,20 +78,22 @@ class Graph:
         self.G.add_edges_from(self.edges_clique)
         return
 
-    def update_plot(self, apr_eigvec2, data, save_flag, t, t_end, nodes_color, new_edges):
+    def update_plot(self, new_edges, eigenvec, newma, t_end):
         """
         Code to generate the animation. Still a WIP, can be written better.
         NOTE: create a folder named "animation" before running this.
         """
 
+        data = pd.DataFrame(newma.log, columns=newma.data_columns)
+        current_t = data["t"].iloc[-1]
+
         plt.clf()
 
-
-        self.fig.suptitle("Time = {0:02d}".format(t), fontsize=16)
+        self.fig.suptitle("Time = {0:02d}".format(current_t), fontsize=16)
         gs = gridspec.GridSpec(2, 2)
 
         ax = self.fig.add_subplot(gs[0, 0])
-        ax.scatter(list(self.G.nodes), np.abs(apr_eigvec2 * np.sqrt(self.n_nodes)), s=15, color=nodes_color)
+        ax.scatter(list(self.G.nodes), np.abs(eigenvec * np.sqrt(self.n_nodes)), s=15, color=self.nodes_color)
         plt.grid(True)
         ax.set_xlabel('Component', fontsize=12)
 
@@ -99,30 +103,28 @@ class Graph:
         ax.axes.get_yaxis().set_ticks([])
 
         ax = self.fig.add_subplot(gs[0, 1])
-        nx.draw_networkx_nodes(self.G, ax=ax, node_color=nodes_color, pos=self.pos_dict, node_size=15)
+        nx.draw_networkx_nodes(self.G, ax=ax, node_color=self.nodes_color, pos=self.pos_dict, node_size=15)
         nx.draw_networkx_edges(self.G, ax=ax, pos=self.pos_dict, width=0.1, edge_color='k')
         nx.draw_networkx_edges(self.G, ax=ax, pos=self.pos_dict, edgelist=new_edges, width=0.4, edge_color='r')
 
         ax.axis('off')
 
-        # start_time = int(20/save_flag) - 1
-        start_time = 0
         ax = self.fig.add_subplot(gs[1, :])
-        ax.plot(data[start_time:int(t / save_flag), 0], data[start_time:int(t / save_flag), 1] * 100, label='Norm')
-        ax.plot(data[start_time:int(t / save_flag), 0], data[start_time:int(t / save_flag), 2] * 100, label='Threshold')
-        ax.plot(data[start_time:int(t / save_flag), 0], data[start_time:int(t / save_flag), 3], label='Number of edges')
+        ax.plot(data["t"], data["norm"], label='Norm')
+        ax.plot(data["t"], data["threshold"], label='Threshold')
+        ax.plot(data["t"], data["n_edges"], label='Number of edges')
 
-        ax.vlines(60, ymin=0, ymax=2000, label='Community formation', color='k')
+        ax.vlines(60, ymin=0, ymax=200, label='Community formation', color='k')
 
         plt.legend()
         plt.grid(True)
         ax.set_title('NEWMA', fontsize=20)
         ax.set_xlabel('Time')
-        ax.set_xlim(start_time, t_end)
+        ax.set_xlim(0, t_end)
 
         if self.save_path is not None:
-            plt.savefig(self.save_path + 'anim_{0:02d}.png'.format(t), format='png', bbox_inches='tight')
-        #self.fig.canvas.draw()
+            img_name = os.path.join(self.save_path, "animation", 'anim_{0:02d}.png'.format(current_t))
+            plt.savefig(img_name, format='png', bbox_inches='tight')
 
         return
 
@@ -142,6 +144,7 @@ class NEWMA:
         self.rescale_tau = rescale_tau
         self.power_iter = power_iter
         self.save_path = save_path
+        self.data_columns = ["t", "n_edges", "norm", "norm_average", "threshold", "detection_flag"]
 
         self.lam = (self.l_ratio ** (1. / self.time_window) - 1) / (self.l_ratio ** ((self.time_window + 1) / self.time_window - 1))
         self.LAMBDA = self.l_ratio * self.lam
@@ -200,11 +203,9 @@ class NEWMA:
         return eigenvec
 
     def update_log(self, n_edges, t):
-
-        data_columns = ["t", "edges", "norm", "norm_average", "thresold", "detection_flag"]
         data = [t, n_edges, self.norm, self.norm_average, self.threshold, self.detection_flag]
         self.log.append(data)
 
         if self.save_path is not None:
-            df = pd.DataFrame(self.log, columns=data_columns)
+            df = pd.DataFrame(self.log, columns=self.data_columns)
             df.to_csv(os.path.join(self.save_path, "newma_{}.csv".format(self.n_nodes)), sep='\t', index=False)

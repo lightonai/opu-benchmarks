@@ -43,7 +43,8 @@ def main(args):
         pathlib.Path(folder_name).mkdir(parents=True, exist_ok=True)
 
 
-    graph = Graph(n_nodes=args.n_nodes, p_edges=args.p_edges, clique_size=args.clique_size, noise_ratio=args.noise_ratio)
+    graph = Graph(n_nodes=args.n_nodes, p_edges=args.p_edges, clique_size=args.clique_size, noise_ratio=args.noise_ratio,
+                  save_path=folder_name)
     graph.__info__()
 
     newma = NEWMA(args.n_nodes, args.n_components, time_window=args.time_window, l_ratio=args.l_ratio, eta=args.eta,
@@ -61,6 +62,7 @@ def main(args):
         newma.detect(Adj_matrix, t=t)
         eigenvector = newma.compute_eigenvector(Adj_matrix)
 
+        graph.update_plot(new_edges, eigenvector, newma, args.t_end)
         print(newma.log[-1])
         #print('t = {0:4d}\t# edges = {1:6d}\tnorm = {2:4.1f}\tprev_average = {3:4.1f}\ttau = {4:4.1f}'
         #      .format(t, graph.G.number_of_edges(), norm, S_bar, threshold))
