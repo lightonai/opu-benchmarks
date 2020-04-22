@@ -4,6 +4,7 @@ import pathlib
 from random import shuffle
 from itertools import combinations
 
+import torch
 import numpy as np
 import networkx as nx
 import matplotlib.pyplot as plt
@@ -133,12 +134,13 @@ class Graph:
 
 
     def __info__(self):
-        print("n_nodes = {}\tp_edges = {}\tclique_size = {}\tclique_step = {}\tnoise_ratio = {}"
+        print("n_nodes = {}\tp_edges = {}\nclique_size = {}\tclique_step = {}\tnoise_ratio = {}\n"
               .format(self.n_nodes, self.p_edges, self.clique_size, self.clique_step, self.noise_ratio))
         return
 
 class NEWMA:
-    def __init__(self, n_nodes, n_components, time_window=20, l_ratio=8.5, eta=0.99, rescale_tau=1.07, power_iter=2, save_path=None):
+    def __init__(self, n_nodes, n_components, time_window=20, l_ratio=8.5, eta=0.99, rescale_tau=1.07, power_iter=2,
+                 verbose=1, save_path=None):
         self.n_nodes = n_nodes
         self.time_window = time_window
         self.l_ratio = l_ratio
@@ -146,8 +148,9 @@ class NEWMA:
         self.eta = eta
         self.rescale_tau = rescale_tau
         self.power_iter = power_iter
+        self.verbose = verbose
         self.save_path = save_path
-        self.data_columns = ["t", "n_edges", "norm", "norm_average", "threshold", "detection_flag"]
+        self.data_columns = ["t", "n_edges", "norm", "norm_average", "threshold", "detection_flag", "generation_time", "proj_time"]
 
         self.lam = (self.l_ratio ** (1. / self.time_window) - 1) / (self.l_ratio ** ((self.time_window + 1) / self.time_window - 1))
         self.LAMBDA = self.l_ratio * self.lam
@@ -155,7 +158,8 @@ class NEWMA:
         self.threshold = 1
         self.norm = 0
         self.norm_average = 0
-        self.z1, self.z2 = np.zeros((self.n_nodes, self.n_components)), np.zeros((n_nodes, self.n_components))
+        self.z1 = torch.zeros((self.n_nodes, self.n_components), requires_grad=False)
+        self.z2 = torch.zeros((self.n_nodes, self.n_components), requires_grad=False)
         self.detection_flag = False
         self.log = []
 
@@ -169,26 +173,26 @@ class NEWMA:
         if self.norm > self.threshold:
             print('Flag at t =', t)
             self.detection_flag = True
-            den_mean = 1
+            self.den_mean = 1
         else:
             self.detection_flag = False
-            den_mean = t
-
-        self.update_log(n_edges=np.sum(Adj_matrix)/2, t=t)
-
-        self.threshold = self.rescale_tau * ((1 - self.eta) * self.norm_average + self.eta * self.norm)
-
-        if den_mean == 1:
-            self.norm_average = self.norm
-        else:
-            self.norm_average = (self.norm + den_mean * self.norm_average) / (den_mean + 1)
+            self.den_mean = t
 
         return
 
-    def compute_eigenvector(self, Adj_matrix):
+    def update_threshold(self):
+        self.threshold = self.rescale_tau * ((1 - self.eta) * self.norm_average + self.eta * self.norm)
+
+        if self.den_mean == 1:
+            self.norm_average = self.norm
+        else:
+            self.norm_average = (self.norm + self.den_mean * self.norm_average) / (self.den_mean + 1)
+        return
+
+    def compute_eigenvector_numpy(self, Adj_matrix):
 
         #Normalization
-
+        print(type(Adj_matrix))
         d = np.sum(Adj_matrix, axis=1)
         D = np.diag(d)
         norm_A_clique = np.matmul(D, np.matmul(Adj_matrix, D))
@@ -205,10 +209,50 @@ class NEWMA:
 
         return eigenvec
 
-    def update_log(self, n_edges, t):
-        data = [t, n_edges, self.norm, self.norm_average, self.threshold, self.detection_flag]
+
+    def compute_eigenvector(self, Adj_matrix):
+        """
+
+        Parameters
+        ----------
+        Adj_matrix: torch tensor,
+            Adjacency matrix of the graph
+
+        Returns
+        -------
+
+        """
+        #Normalization
+
+        d = Adj_matrix.sum(dim=1)
+        D = torch.diag(d)
+        norm_A_clique = torch.mm(D, torch.mm(Adj_matrix, D))
+
+        I_A = torch.ones((self.n_nodes, self.n_nodes)) + norm_A_clique
+        v1 = torch.ones(self.n_nodes) * 1.0 / np.sqrt(self.n_nodes)
+
+        #Power method
+
+        x = torch.randint(-1, 1, size=(self.n_nodes,), dtype=torch.float)
+        eigenvec = x - torch.dot(v1, x) * v1
+
+        for i in range(self.power_iter):
+            eigenvec = torch.matmul(I_A, eigenvec)
+
+        return eigenvec
+
+    def update_log(self, t, n_edges,  generation_time, proj_time):
+        data = [t, n_edges, self.norm, self.norm_average, self.threshold, self.detection_flag, generation_time, proj_time]
         self.log.append(data)
+
+        if self.verbose == 0:
+            print('t = {0:4d}\tFlag={1}'.format(t, self.detection_flag))
+        elif self.verbose == 1:
+            print('Flag={0}\tt = {1:4d}\t# edges = {2:6d}\tnorm = {3:4.1f}\tprev_average = {4:4.1f}\ttau = {5:4.1f}\tproj_time = {6:2.3f}'
+                  .format(self.detection_flag, t, n_edges, self.norm, self.norm_average, self.threshold, proj_time))
 
         if self.save_path is not None:
             df = pd.DataFrame(self.log, columns=self.data_columns)
             df.to_csv(os.path.join(self.save_path, "newma_{}.csv".format(self.n_nodes)), sep='\t', index=False)
+
+        return

@@ -3,13 +3,13 @@ import pathlib
 import argparse
 from argparse import RawTextHelpFormatter
 
-from random import shuffle
-
+import torch
 import networkx as nx
-import numpy as np
-import time
+
 
 from utils.graphs.newma import Graph, NEWMA
+from utils.projections import get_random_features, GPU_matrix
+
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Change point detection on graphs with NEWMA.",
@@ -33,6 +33,14 @@ def parse_args():
     parser.add_argument("-nc", '--n_components', help="Number of random projections.", type=int, default=1000)
     parser.add_argument("-pi", '--power_iter', help="Iterations for the Power method.", type=int, default=2)
 
+    # Devices
+    parser.add_argument("-d", "--device", help='Device for the Random projection.', type=str, choices=["cuda:0", "opu"],
+                        default="opu")
+    parser.add_argument("-m", "--GPU_memory",
+                        help='Memory for the random projection if GPU is used. Used to optimize the matrix splits.',
+                        type=int, default=10)
+
+
     parser.add_argument("-s", "--save_path", help='Path to the save folder. If None, results will not be saved. Default=None.',
                         type=str, default=None)
     args = parser.parse_args()
@@ -41,8 +49,24 @@ def parse_args():
 def main(args):
 
     if args.save_path is not None:
-        folder_name = os.path.join(args.save_path, "graph_nodes_{}_clique_{}".format(args.n_nodes, args.clique_size))
+        folder_name = os.path.join(args.save_path, "graph_nodes_{}_clique_{}_{}"
+                                   .format(args.n_nodes, args.clique_size, args.device))
         pathlib.Path(folder_name).mkdir(parents=True, exist_ok=True)
+
+    if args.device == "opu":
+        R = None
+        generation_time = 0.
+        conv_blocks = 1
+
+    else:
+        print("Generating random matrix of size ({} x {})".format(args.n_nodes, args.n_components))
+        GPU_optimizer = GPU_matrix(n_samples=args.n_nodes, n_features=args.n_nodes, n_components=args.n_components,
+                                   GPU_memory=args.GPU_memory)
+
+        R, generation_time = GPU_optimizer.generate_RM()
+        conv_blocks = args.n_nodes // GPU_optimizer.conv_blocks_size
+        print("Generation time = {0:3.2f} s".format(generation_time))
+        print("Splits size: R = {}\t conv = {}\n".format(GPU_optimizer.R_blocks_size, GPU_optimizer.conv_blocks_size))
 
 
     graph = Graph(n_nodes=args.n_nodes, p_edges=args.p_edges, clique_size=args.clique_size, clique_step=args.clique_step,
@@ -52,22 +76,30 @@ def main(args):
     newma = NEWMA(args.n_nodes, args.n_components, time_window=args.time_window, l_ratio=args.l_ratio, eta=args.eta,
                   rescale_tau=args.rescale_tau, power_iter=args.power_iter, save_path=folder_name)
 
-    for t in range(1, args.t_end):
-        new_edges = graph.evolve()
-        #print('t = {0:4d}\t# edges = {1:6d}'.format(t, graph.G.number_of_edges()))
+    with torch.no_grad():
+        for t in range(1, args.t_end):
+            new_edges = graph.evolve()
+            #print('t = {0:4d}\t# edges = {1:6d}'.format(t, graph.G.number_of_edges()))
 
-        if args.t_clique <= t <= args.t_clique + args.clique_step:
-            graph.create_clique(progression=t - args.t_clique + 1)
+            if args.t_clique <= t <= args.t_clique + args.clique_step:
+                graph.create_clique(progression=t - args.t_clique + 1)
 
-        Adj_matrix = nx.to_numpy_array(graph.G)
+            Adj_matrix = torch.FloatTensor(nx.to_numpy_array(graph.G))
 
-        newma.detect(Adj_matrix, t=t)
-        eigenvector = newma.compute_eigenvector(Adj_matrix)
+            if args.device == "opu":
+                Adj_matrix = Adj_matrix.bool()
 
-        graph.update_plot(new_edges, eigenvector, newma, args.t_end)
-        print(newma.log[-1])
-        #print('t = {0:4d}\t# edges = {1:6d}\tnorm = {2:4.1f}\tprev_average = {3:4.1f}\ttau = {4:4.1f}'
-        #      .format(t, graph.G.number_of_edges(), norm, S_bar, threshold))
+            proj_time, random_features = get_random_features(Adj_matrix, args.n_components,
+                                                             matrix=R, conv_blocks=conv_blocks, device=args.device)
+
+            newma.detect(random_features.float(), t=t)
+
+            eigenvector = newma.compute_eigenvector(Adj_matrix.float())
+
+            newma.update_log(t, graph.G.number_of_edges(), generation_time, proj_time)
+            graph.update_plot(new_edges, eigenvector, newma, args.t_end)
+            newma.update_threshold()
+
     return
 
 if __name__ == "__main__":
