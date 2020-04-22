@@ -30,6 +30,7 @@ def parse_args():
     parser.add_argument("-eta", '--eta', help="Forgetting factor for threshold.", type=float, default=0.99)
     parser.add_argument("-r_tau", '--rescale_tau', help="rescaling factor for threshold.", type=float, default=1.07)
     parser.add_argument("-nc", '--n_components', help="Number of random projections.", type=int, default=1000)
+    parser.add_argument("-pi", '--power_iter', help="Iterations for the Power method.", type=int, default=2)
 
     parser.add_argument("-s", "--save_path", help='Path to the save folder. If None, results will not be saved. Default=None.',
                         type=str, default=None)
@@ -48,7 +49,7 @@ def main(args):
     graph.__info__()
 
     newma = NEWMA(args.n_nodes, args.n_components, time_window=args.time_window, l_ratio=args.l_ratio, eta=args.eta,
-                  rescale_tau=args.rescale_tau, save_path=folder_name)
+                  rescale_tau=args.rescale_tau, power_iter=args.power_iter, save_path=folder_name)
 
     for t in range(1, args.t_end):
         new_edges = graph.evolve()

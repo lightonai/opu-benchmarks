@@ -135,7 +135,7 @@ class Graph:
         return
 
 class NEWMA:
-    def __init__(self, n_nodes, n_components, time_window=20, l_ratio=8.5, eta=0.99, rescale_tau=1.07, power_iter=0, save_path=None):
+    def __init__(self, n_nodes, n_components, time_window=20, l_ratio=8.5, eta=0.99, rescale_tau=1.07, power_iter=2, save_path=None):
         self.n_nodes = n_nodes
         self.time_window = time_window
         self.l_ratio = l_ratio
