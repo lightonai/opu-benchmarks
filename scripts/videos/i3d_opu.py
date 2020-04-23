@@ -16,7 +16,8 @@ from torch.utils.data import DataLoader
 from sklearn.linear_model import RidgeClassifier
 
 import utils.videos.models.i3d as i3d
-from utils.videos.features import fast_conv_features, decoding, get_random_features, dummy_predict_GPU, generate_RM
+from utils.videos.features import fast_conv_features, decoding, dummy_predict_GPU
+from utils.projections import GPU_matrix, get_random_features
 from utils.videos.datasets.HMDB51 import HMDB51Frames3D, HMDB51Flow3D
 from utils.videos.datasets.UCF101 import UCF101Frames3D, UCF101Flow3D
 from utils.videos.statistics import get_video_acc_3d, get_model_size, get_output_size
@@ -45,6 +46,9 @@ def parse_args():
 
     parser.add_argument("-RP_device", help='Device for the Random projection.', type=str, choices=["gpu", "opu"],
                         default="opu")
+    parser.add_argument("-GPU_memory",
+                        help='Memory for the random projection if GPU is used. Used to optimize the matrix splits.',
+                        type=int, default=10)
     parser.add_argument("-device",
                         help="Device for the GPU computation, specified as 'cuda:x', where x is the GPU number."
                              "Choose 'cpu' to use the CPU for all computations. Default='cuda:0'", type=str,
@@ -187,8 +191,8 @@ def main(args):
     output_size = get_output_size(model, input_shape=(1, n_channels, args.frames_train, args.crop_size, args.crop_size))
 
     if args.n_components != 0:
-        args.n_components = output_size // args.n_components
-        print("Random Projection from {} to {}".format(output_size, args.n_components))
+        n_components = output_size // args.n_components
+        print("Random Projection from {} to {}".format(output_size, n_components))
 
     model_size, total_weights, tot_linear_size = get_model_size(model)
 
@@ -209,16 +213,27 @@ def main(args):
           .format(test_conv_time, test_enc_time, enc_test_features.shape))
 
     if args.RP_device == "gpu":
-        R, generation_time = generate_RM(args.n_components, output_size)
+        GPU_optimizer = GPU_matrix(enc_train_features.shape[0], output_size, n_components, GPU_memory=args.GPU_memory)
+        R, generation_time = GPU_optimizer.generate_RM()
+        conv_blocks = enc_train_features.shape[0] // GPU_optimizer.conv_blocks_size
         print("Generation time = {0:3.2f} s".format(generation_time))
-
+        print("Splits size: R = {}\t conv = {}".format(GPU_optimizer.R_blocks_size, GPU_optimizer.conv_blocks_size))
     else:
         R = None
         generation_time = 0.
+        conv_blocks = 1
 
     # Encode, get the random features and decode
-    train_proj_time, train_random_features = get_random_features(enc_train_features, args.n_components, matrix=R)
-    test_proj_time, test_random_features = get_random_features(enc_test_features, args.n_components, matrix=R)
+    train_proj_time, train_random_features = get_random_features(enc_train_features, n_components,
+                                                                 matrix=R, conv_blocks=conv_blocks, device=args.device)
+    torch.cuda.empty_cache()
+
+    test_proj_time, test_random_features = get_random_features(enc_test_features, n_components,
+                                                               matrix=R, conv_blocks=conv_blocks, device=args.device)
+
+    torch.cuda.empty_cache()
+
+
     print('Train Projection time = {0:3.2f} s\nTest Projection time = {1:3.2f} s'.format(train_proj_time, test_proj_time))
 
     del enc_train_features, enc_test_features

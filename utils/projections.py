@@ -17,14 +17,17 @@ def get_random_features(X, n_components, matrix=None, conv_blocks=1, device="cud
 
     Parameters
     ----------
-    X: numpy 2d array,
+    X: numpy 2d array or torch.tensor,
         encoded convolutional training features. Make sure that the dtype is int8 if n_components!=0.
     n_components: int,
         number of random projections.
-    matrix: None or numpy array,
+    matrix: None or torch.tensor,
         Matrix to use for the random projection on GPU. If None, the OPU will be used.
     conv_blocks: int,
         number of splits for the input matrix if GPU is used.
+    device: str,
+        device for the random projection if the OPU is not used. Examples are "cpu" or "cuda:0".
+
     Returns
     -------
 
@@ -63,7 +66,24 @@ def get_random_features(X, n_components, matrix=None, conv_blocks=1, device="cud
 
 def get_rand_features_GPU(X_blocks, R_blocks, device="cuda:0"):
     """
-    Computes the random projection on GPU, using splits for both the random matrix and the input matrix
+    Computes the random projection on GPU, using splits for both the random matrix and the input matrix.
+
+    Parameters
+    ----------
+    X_blocks: tuple of torch.Tensor,
+        splits for the input matrix. It must be on CPU.
+    R_blocks: tuple of torch.Tensor,
+        splits for the random matrix. It must be on CPU.
+    device: str,
+        device for the random projection if the OPU is not used. Examples are "cpu" or "cuda:0".
+
+    Returns
+    -------
+    proj_time: float,
+        projection time for the features.
+    random_features: numpy 2d array,
+        random features of the training set. If n_components=0, the original train random features are returned.
+
     """
 
     random_features = []
@@ -95,7 +115,41 @@ def get_rand_features_GPU(X_blocks, R_blocks, device="cuda:0"):
 
 
 class GPU_matrix:
+    """
+    Class that generates a random matrix and computes the optimal split for both the random matrix and the input
+    matrix so that everything will fit in the GPU memory.
+
+    NOTE: It works well if the random projection is the only thing you do. If there are other things in the script,
+    account for the additional memory cost.
+
+    Attributes
+    ----------
+    n_samples: int, number of samples of the input matrix (i.e. the rows)
+    n_features: int, number of features of the input matrix (i.e. the columns)
+    n_components: int, number of random projections.
+    GPU_memory: int, memory available for the Random projection.
+    normalize: boolean, whether to normalize or not the random matrix.
+
+    R_blocks_size: int, optimal size for the blocks of the random matrix (along the columns)
+    conv_blocks_size: int, optimal size for the blocks of the input matrix (along the rows)
+
+    Methods
+    -------
+    optimize_split: returns the optimal size for the input and random matrix split.
+    generate_RM: generates the split random matrix as a tuple of torch tensors.
+
+    """
     def __init__(self, n_samples, n_features, n_components, GPU_memory=16, normalize=True):
+        """
+
+        Parameters
+        ----------
+        n_samples: int, number of samples of the input matrix (i.e. the rows)
+        n_features: int, number of features of the input matrix (i.e. the columns)
+        n_components: int, number of random projections.
+        GPU_memory: int, memory available for the Random projection.
+        normalize: boolean, whether to normalize or not the random matrix.
+        """
         self.n_samples = n_samples
         self.n_features = n_features
         self.n_components = n_components
@@ -107,7 +161,7 @@ class GPU_matrix:
 
     def optimize_split(self):
         """
-        Computes the optimal size for the splits of the convolutional and random matrix. memory is always in GB.
+        Computes the optimal size for the splits of the convolutional and random matrix. Memory is always in GB.
         The random matrix is assumed to be complex, the conv matrix real.
 
         The number of blocks used to split the matrices is:
@@ -139,7 +193,6 @@ class GPU_matrix:
             total_memory = R_memory + conv_memory + prod_memory
 
         return R_blocks_size, conv_blocks_size
-
 
     def generate_RM(self):
         """

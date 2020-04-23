@@ -53,6 +53,10 @@ def main(args):
                                    .format(args.n_nodes, args.clique_size, args.device))
         pathlib.Path(folder_name).mkdir(parents=True, exist_ok=True)
 
+    # Erase this, I hardcoded the number of components and the clique_size
+    args.n_components = args.n_nodes//2
+    args.clique_size = args.n_nodes//100
+
     if args.device == "opu":
         R = None
         generation_time = 0.

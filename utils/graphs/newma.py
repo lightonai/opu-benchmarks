@@ -12,8 +12,47 @@ import matplotlib.gridspec as gridspec
 import pandas as pd
 
 class Graph:
+    """
+    Attributes
+    ----------
+    n_nodes: int, number of nodes.
+    clique_size: int, number of nodes for the clique.
+    clique_step: int, number of steps for the creation of the clique.
+    p_edges: float, probability of drawing an edge between two nodes.
+    noise_ratio: float, noise strength as a percentage of the starting number of edges.
+    save_path: float or None, save path for the animation images
 
+    G: nx graph, graph object.
+    n_noise_edges: int, max number of noise edges that can be added/removed.
+    nodes_clique: list of int, nodes that make up the clique.
+    edges_clique: list of tuples (int, int), edges that make up the clique.
+    pos_dict: dict, contains the position of the nodes in 2D space. keys: nodes(int), values: tuples (int, int)
+    nodes_color: dict,
+     contains the node colors. The clique nodes will have different color. keys: nodes (int) values:colors (str)
+    fig: matplotlib figure, figure for the animation.
+
+    Methods
+    -------
+    initialize_clique: generates the main parameters for the clique (nodes, edges and colors).
+    evolve: evolves the graph in time.
+    create_clique: creates the clique
+    update_plot: generates another frame for the animation
+    __info__: prints the main parameters of the graph.
+
+    """
     def __init__(self, n_nodes, clique_size, clique_step=1, p_edges=0.003, noise_ratio=10, save_path=None):
+        """
+
+        Parameters
+        ----------
+
+        n_nodes: int, number of nodes.
+        clique_size: int, number of nodes for the clique.
+        clique_step: int, number of steps for the creation of the clique.
+        p_edges: float, probability of drawing an edge between two nodes.
+        noise_ratio: float, noise strength as a percentage of the starting number of edges.
+        save_path: float or None, save path for the animation images
+        """
         self.n_nodes = n_nodes
         self.p_edges = p_edges
         self.clique_size = clique_size
@@ -32,6 +71,18 @@ class Graph:
 
 
     def initialize_clique(self):
+        """
+
+        Returns
+        -------
+
+        nodes_clique: list of int, nodes that make up the clique.
+        edges_clique: list of tuples (int, int), edges that make up the clique.
+        pos_dict: dict, contains the position of the nodes in 2D space. keys: nodes(int), values: tuples (int, int)
+        nodes_color: dict,
+        contains the node colors. The clique nodes will have different color. keys: nodes (int) values:colors (str)
+
+        """
         nodes = list(self.G.nodes)
 
         shuffle(nodes)
@@ -77,7 +128,14 @@ class Graph:
         return no_edges[0:n_add]
 
     def create_clique(self, progression=0):
+        """
+        Creates (gradually) the clique.
 
+        Parameters
+        ----------
+        progression: int, stage of creation of the clique
+
+        """
         edges_to_add = len(self.edges_clique)//self.clique_step * progression
         self.G.add_edges_from(self.edges_clique[:edges_to_add])
 
@@ -85,7 +143,14 @@ class Graph:
 
     def update_plot(self, new_edges, eigenvec, newma, t_end):
         """
-        Code to generate the animation. Still a WIP, can be written better.
+        Code to generate the animation. There are 3 panels: eigenvector (top-left), graph (top-right) and NEWMA (bottom)
+
+        Parameters
+        ----------
+        new_edges: list of tuples (int, int), edges added at the current iteration
+        eigenvec: numpy array or torch tensor, eigenvector of 2nd largest eigenvalue
+        newma: newma object, needed to access the logs of the simulation (norm, threshold and number of edges)
+        t_end: int, total length of the simulation.
         """
 
         data = pd.DataFrame(newma.log, columns=newma.data_columns)
@@ -134,13 +199,59 @@ class Graph:
 
 
     def __info__(self):
+        """ Prints the main info of the graph"""
+
         print("n_nodes = {}\tp_edges = {}\nclique_size = {}\tclique_step = {}\tnoise_ratio = {}\n"
               .format(self.n_nodes, self.p_edges, self.clique_size, self.clique_step, self.noise_ratio))
         return
 
 class NEWMA:
+    """
+    Newma object to perform change point detection on graphs
+
+    Attributes
+    ----------
+    n_nodes: int, number of nodes of the graph.
+    n_components: int, number of random projections.
+    time_window: int, time window for Newma.
+    l_ratio: float, ratio between the forgetting factors.
+    eta: float, forgetting factor for the threshold update.
+    rescale_tau: float, rescaling factor for the threshold
+    power_iter: int, number of power iterations for the power method.
+    verbose: int, verbose level: 0->just the time/flag | 1-> time, threshold and norms too.
+    save_path: None or str, save path for the logs
+
+    self.lam: float, forgetting factor 1
+    self.LAMBDA: float, forgetting factor 2
+
+    self.threshold: float, threshold value. Initial value is set at 1 for no particular reason.
+    self.norm: float, norm value. Initial value is set at 0 for no particular reason.
+    self.norm_average: norm average.
+
+    self.z1: torch tensor, matrix for the first EWMA
+    self.z2: torch tensor, matrix for the second EWMA
+
+    self.detection_flag: boolean, if True, a change point was detected.
+    self.log: list, contains the parameters to log.
+
+    """
     def __init__(self, n_nodes, n_components, time_window=20, l_ratio=8.5, eta=0.99, rescale_tau=1.07, power_iter=2,
                  verbose=1, save_path=None):
+        """
+
+        Parameters
+        ----------
+        n_nodes: int, number of nodes of the graph.
+        n_components: int, number of random projections.
+        time_window: int, time window for Newma.
+        l_ratio: float, ratio between the forgetting factors.
+        eta: float, forgetting factor for the threshold update.
+        rescale_tau: float, rescaling factor for the threshold
+        power_iter: int, number of power iterations for the power method.
+        verbose: int, verbose level: 0->just the time/flag | 1-> time, threshold and norms too.
+        save_path: None or str, save path for the logs
+
+        """
         self.n_nodes = n_nodes
         self.time_window = time_window
         self.l_ratio = l_ratio
@@ -164,7 +275,15 @@ class NEWMA:
         self.log = []
 
     def detect(self, Adj_matrix, t):
+        """
+        Applies NEWMA to detect a change point in the graph.
 
+        Parameters
+        ----------
+        Adj_matrix: torch tensor, Adjacency matrix of the graph.
+        t: int, current time step.
+
+        """
         self.z1 = (1 - self.lam) * self.z1 + self.lam * Adj_matrix
         self.z2 = (1 - self.LAMBDA) * self.z1 + self.LAMBDA * Adj_matrix
 
@@ -181,6 +300,9 @@ class NEWMA:
         return
 
     def update_threshold(self):
+        """
+        Updates the threshold for the change point detection.
+        """
         self.threshold = self.rescale_tau * ((1 - self.eta) * self.norm_average + self.eta * self.norm)
 
         if self.den_mean == 1:
@@ -190,7 +312,18 @@ class NEWMA:
         return
 
     def compute_eigenvector_numpy(self, Adj_matrix):
+        """
+        Computes the eigenvector of the second largest eigenvalue
 
+        Parameters
+        ----------
+        Adj_matrix: torch tensor, Adjacency matrix of the graph.
+
+        Returns
+        -------
+        eigenvec: torch tensor, eigenvector of 2nd largest eigenvalue
+
+        """
         #Normalization
         print(type(Adj_matrix))
         d = np.sum(Adj_matrix, axis=1)
@@ -212,14 +345,12 @@ class NEWMA:
 
     def compute_eigenvector(self, Adj_matrix):
         """
+        Computes the eigenvector of the second largest eigenvalue.
 
         Parameters
         ----------
         Adj_matrix: torch tensor,
             Adjacency matrix of the graph
-
-        Returns
-        -------
 
         """
         #Normalization
@@ -242,6 +373,18 @@ class NEWMA:
         return eigenvec
 
     def update_log(self, t, n_edges,  generation_time, proj_time):
+        """
+        Prints the current state of the simulation and updates the log with the relevant information.
+
+        Parameters
+        ----------
+        t: int, current time step.
+        n_edges; int, number of edges at time t.
+        generation_time: float, time to generate the random matrix.
+        proj_time: float, time for the projection.
+
+        """
+
         data = [t, n_edges, self.norm, self.norm_average, self.threshold, self.detection_flag, generation_time, proj_time]
         self.log.append(data)
 
