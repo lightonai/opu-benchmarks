@@ -46,8 +46,9 @@ Call `chmod +x cnn2d.sh` and execute with `./cnn2d.sh`. There are instructions i
 
 ## Graph simulation
 
-Coming soon!
-
+In the `bash` folder there is a script called `graphs.sh`. Just launch that and it will run the same simulation with 
+both the OPU and GPU for graphs of different sizes.
+ 
 ## Transfer Learning on videos
 
 #### Datasets and model
