@@ -52,6 +52,8 @@ both the OPU and GPU for graphs of different sizes.
 ## Transfer Learning on videos
 
 #### Datasets and model
+The training pipeline was developed starting from this paper:  
+[Quo Vadis, Action Recognition? A New Model and the Kinetics Dataset](https://arxiv.org/abs/1705.07750)
 
 The most popular datasets in the action recognition task are:
 
