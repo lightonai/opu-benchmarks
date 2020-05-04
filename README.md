@@ -2,6 +2,12 @@
 
 This repository contains three different benchmarks to compare the performance of CPU and GPU with LightOn's Optical Processing Unit (OPU).
 
+## Access to Optical Processing Units
+
+To request access to LightOn Cloud and try our photonic co-processor, please visit: https://cloud.lighton.ai/
+
+For researchers, we also have a LightOn Cloud for Research program, please visit https://cloud.lighton.ai/lighton-research/ for more information.
+
 ## Installation
 
 We advise creating a `virtualenv` before running these commands. You can create one with `python3 -m venv <venv_name>`. 
