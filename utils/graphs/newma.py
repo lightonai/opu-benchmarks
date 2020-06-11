@@ -141,7 +141,7 @@ class Graph:
 
         return
 
-    def update_plot(self, new_edges, eigenvec, newma, t_end):
+    def update_plot(self, new_edges, eigenvec, newma, t_start, t_end, t_clique):
         """
         Code to generate the animation. There are 3 panels: eigenvector (top-left), graph (top-right) and NEWMA (bottom)
 
@@ -183,13 +183,13 @@ class Graph:
         ax.plot(data["t"], data["threshold"], label='Threshold')
         ax.plot(data["t"], data["n_edges"], label='Number of edges')
 
-        ax.vlines(60, ymin=0, ymax=200, label='Community formation', color='k')
+        ax.vlines(t_clique, ymin=0, ymax=200, label='Community formation', color='k')
 
         plt.legend()
         plt.grid(True)
         ax.set_title('NEWMA', fontsize=20)
         ax.set_xlabel('Time')
-        ax.set_xlim(0, t_end)
+        ax.set_xlim(t_start, t_end)
 
         if self.save_path is not None:
             img_name = os.path.join(self.save_path, "animation", 'anim_{0:02d}.png'.format(current_t))

@@ -11,7 +11,7 @@ except ModuleNotFoundError:
     print("Missing lightonml module. Check that it is correctly installed.")
 
 
-def get_random_features(X, n_components, matrix=None, conv_blocks=1, device="cuda:0"):
+def get_random_features(X, n_components, opu_map=None, matrix=None, conv_blocks=1, device="cuda:0"):
     """
     Performs the random projection of the encoded random features X using the OPU.
 
@@ -21,6 +21,9 @@ def get_random_features(X, n_components, matrix=None, conv_blocks=1, device="cud
         encoded convolutional training features. Make sure that the dtype is int8 if n_components!=0.
     n_components: int,
         number of random projections.
+    opu_map: OPUMap object or None,
+        OPUMap object for performing the projection with the OPU. If None, it is generated automatically.
+        You should pass it when you plan to do multiple projections in the same script.
     matrix: None or torch.tensor,
         Matrix to use for the random projection on GPU. If None, the OPU will be used.
     conv_blocks: int,
@@ -55,10 +58,11 @@ def get_random_features(X, n_components, matrix=None, conv_blocks=1, device="cud
         random_features, train_time = get_rand_features_GPU(X_blocks, matrix, device=device)
 
     else:
-        opu = OPUMap(n_components=n_components)
+        if opu_map is None:
+            opu_map = OPUMap(n_components=n_components)
 
         since = time()
-        random_features = opu.transform(X)
+        random_features = opu_map.transform(X)
         train_time = time() - since
 
     return train_time, random_features
