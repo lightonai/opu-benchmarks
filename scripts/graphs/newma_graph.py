@@ -27,7 +27,7 @@ def parse_args():
 
     # For the plots
     parser.add_argument("-ts", '--t_start', help="Start of the plot. Useful if you want to skip the starting peak.",
-                        type=int, default=20)
+                        type=int, default=0)
 
     #NEWMA arguments
     parser.add_argument("-tw", '--time_window', help="Time window for the detection of changes.", type=int, default=20)
@@ -41,7 +41,7 @@ def parse_args():
 
     # Devices
     parser.add_argument("-d", "--device", help='Device for the Random projection.', type=str, choices=["cuda:0", "opu"],
-                        default="cuda:0")
+                        default="opu")
     parser.add_argument("-m", "--GPU_memory",
                         help='Memory for the random projection if GPU is used. Used to optimize the matrix splits.',
                         type=int, default=10)
