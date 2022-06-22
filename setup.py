@@ -12,7 +12,7 @@ setuptools.setup(
     long_description=long_description,
     long_description_content_type="text/markdown",
     packages=setuptools.find_packages(),
-    install_requires=["numpy==1.17.5", "scikit-learn==0.22.1", "scipy==1.4.1", "torch==1.2", "torchvision==0.4",
+    install_requires=["numpy==1.22.0", "scikit-learn==0.22.1", "scipy==1.4.1", "torch==1.2", "torchvision==0.4",
                       "pandas==0.24.2", "tqdm==4.41.1", "matplotlib==3.0.2", "Pillow==6.2", "lightonml==1.0.2",
                       "lightonopu==1.1.0", "networkx==2.4"],
     classifiers=[
